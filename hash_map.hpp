@@ -9,9 +9,9 @@ struct HashMap {
     upcxx::global_ptr<kmer_pair>* data_pt;    
     upcxx::global_ptr<int>* used_pt; 
     upcxx::atomic_domain<int> ad; 
-        
-//    std::vector<kmer_pair> data;
-//    std::vector<int> used;
+    
+    //std::vector<std::list<kmer_pair>> data_buf;
+    //std::vector<std::list<uint64_t>>  slot_buf;
     
     int slots_per_rank;
 
@@ -23,10 +23,8 @@ struct HashMap {
 
     // Most important functions: insert and retrieve
     // k-mers from the hash table.
-    int insert(const kmer_pair& kmer);
+    bool insert(const kmer_pair& kmer);
     bool find(const pkmer_t& key_kmer, kmer_pair& val_kmer);
-    
-    
     
     // Helper functions
 
@@ -41,11 +39,9 @@ struct HashMap {
 
 HashMap::HashMap(size_t size) {
     my_size = size;
-//    data.resize(size);
-//    used.resize(size, 0);
     
     slots_per_rank = size/upcxx::rank_n()+1;
-    BUtil::print("slots_per_rank is %i\n",slots_per_rank);
+    //BUtil::print("slots_per_rank is %i\n",slots_per_rank);
     
     upcxx::dist_object<upcxx::global_ptr<kmer_pair>> data(upcxx::new_array<kmer_pair>(slots_per_rank));
     upcxx::dist_object<upcxx::global_ptr<int>> used(upcxx::new_array<int>(slots_per_rank));
@@ -53,45 +49,40 @@ HashMap::HashMap(size_t size) {
     data_pt = new upcxx::global_ptr<kmer_pair>[upcxx::rank_n()];
     used_pt = new upcxx::global_ptr<int>[upcxx::rank_n()];
     
+    upcxx::barrier();
+    
     for (int rank = 0; rank < upcxx::rank_n(); rank++){
         data_pt[rank] = data.fetch(rank).wait();
         used_pt[rank] = used.fetch(rank).wait();
     }
+    upcxx::barrier();
+    //data_buf.resize(upcxx::rank_n());
+    //slot_buf.resize(upcxx::rank_n());
+    //for (int rank = 0; rank < upcxx::rank_n(); rank++){
+    //    std::list<kmer_pair> row_d = {};
+    //    std::list<uint64_t> row_s = {};
+    //    data_buf[rank] = row_d;
+    //    slot_buf[rank] = row_s;
+    //}
     
     ad = upcxx::atomic_domain<int>({upcxx::atomic_op::load,upcxx::atomic_op::fetch_add});
 }
 
-//bool HashMap::insert(const kmer_pair& kmer) {
-//    uint64_t hash = kmer.hash();
-//    uint64_t probe = 0;
-//    bool success = false;
-//    do {
-//        uint64_t slot = (hash + probe++) % size();
-//        success = request_slot(slot).wait()>0 ? false : true;
-//        // DO A RPC HERE !!
-//        if (success) {
-//            write_slot(slot, kmer);
-//        }
-//    } while (!success && probe < size());
-//    return success;
-//}
 
-int HashMap::insert(const kmer_pair& kmer) {
+bool HashMap::insert(const kmer_pair& kmer) {
     uint64_t hash = kmer.hash();
     uint64_t probe = 0;
     bool success = false;
-    int count = 0;
     do {
-        count++;
         uint64_t slot = (hash + probe++) % size();
-        // DO A RPC HERE !!
         success = request_slot(slot).wait()>0 ? false : true;
         if (success) {
-            write_slot(slot, kmer);
+            write_slot(slot,kmer);
+            //data_buf[slot/slots_per_rank].push_back(kmer);
+            //slot_buf[slot/slots_per_rank].push_back(slot%slots_per_rank);
         }
     } while ((!success) && probe < size());
-    if (!success) count=0;
-    return count;
+    return success;
 }
 
 bool HashMap::find(const pkmer_t& key_kmer, kmer_pair& val_kmer) {
@@ -111,8 +102,6 @@ bool HashMap::find(const pkmer_t& key_kmer, kmer_pair& val_kmer) {
 }
 
 bool HashMap::slot_used(uint64_t slot) { 
-    //upcxx::global_ptr<int> remote_ar = used_pt->fetch(slot/slots_per_rank).wait(); ////// CAN AVOID THE WAIT() HERE - WITH A FUTURE - SEE ATOMICS SECTION OF THE GUIDE /////
-    //upcxx::global_ptr<int> remote_slot = remote_ar + slot%slots_per_rank;
     upcxx::global_ptr<int> remote_slot = used_pt[slot/slots_per_rank] + slot%slots_per_rank;
     return ad.load(remote_slot,std::memory_order_relaxed).wait() != 0; 
 }

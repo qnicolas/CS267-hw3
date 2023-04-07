@@ -48,6 +48,7 @@ int main(int argc, char** argv) {
 
     // Load factor of 0.5
     size_t hash_table_size = n_kmers * (1.0 / 0.5);
+    BUtil::print("Starting to initialize the hashmap...\n");
     HashMap hashmap(hash_table_size);
 
     if (run_type == "verbose") {
@@ -62,58 +63,16 @@ int main(int argc, char** argv) {
     }
     
     
-    //////////////////////////////////////////////////////////// TESTS //////////////////////////////////////////////////////////
-    //upcxx::dist_object<upcxx::global_ptr<int>>* used_pt; 
-    //int slots_per_rank = hash_table_size/upcxx::rank_n()+1;
-    //upcxx::dist_object<upcxx::global_ptr<int>> used1(upcxx::new_array<int>(slots_per_rank));
-    //used_pt = &used1;
-    //
-    //upcxx::global_ptr<int> heads[upcxx::rank_n()];
-    //for (int rank = 0; rank < upcxx::rank_n(); rank++){
-    //    heads[rank] = used_pt->fetch(rank).wait();
-    //}
-    //
-    //int test_int = upcxx::rget(heads[2]+10).wait();
-    //BUtil::print("%i\n",test_int);
-    //
-    //BUtil::print("Finished program\n");
-    //hashmap.ad.destroy();
-    //return 0;
-    
-
+    ///////////////////////////////// INSERTING //////////////////////////////// 
+    BUtil::print("Starting insert...\n");
     auto start = std::chrono::high_resolution_clock::now();
-    auto part_begin = std::chrono::high_resolution_clock::now();
-    auto part_end = std::chrono::high_resolution_clock::now();
-    double insert_time1 = 0.,insert_timemore = 0.;
-
+    
     std::vector<kmer_pair> start_nodes;
-    
-    int all_counts = 0;
-    int max_count = 0;
-    
     for (auto& kmer : kmers) {
-//        bool success = hashmap.insert(kmer);
-//        if (!success) {
-//            throw std::runtime_error("Error: HashMap is full!");
-//        }
-        part_begin = std::chrono::high_resolution_clock::now();
-        int count = hashmap.insert(kmer);
-        part_end = std::chrono::high_resolution_clock::now();
-        
-        all_counts+=count;
-        max_count = max_count>=count ? max_count : count;
-        switch (count) {
-            case 0:
-                throw std::runtime_error("Error: HashMap is full!");
-                break;
-            case 1:
-                insert_time1 += std::chrono::duration<double>(part_end - part_begin).count();
-                break;
-            default:
-                insert_timemore += std::chrono::duration<double>(part_end - part_begin).count();
+        bool success = hashmap.insert(kmer);
+        if (!success) {
+            throw std::runtime_error("Error: HashMap is full!");
         }
-        
-
         if (kmer.backwardExt() == 'F') {
             start_nodes.push_back(kmer);
         }
@@ -121,9 +80,6 @@ int main(int argc, char** argv) {
     auto end_insert = std::chrono::high_resolution_clock::now();
     upcxx::barrier();
 
-    BUtil::print("mean count %f, max %i \n", ((double) all_counts) / ((double) n_kmers), max_count );
-    BUtil::print("time1 %lf, timemore %lf\n", insert_time1,insert_timemore);
-    
     double insert_time = std::chrono::duration<double>(end_insert - start).count();
     if (run_type != "test") {
         BUtil::print("Finished inserting in %lf\n", insert_time);
@@ -132,14 +88,7 @@ int main(int argc, char** argv) {
     
     
     
-    
-    hashmap.ad.destroy();
-    upcxx::finalize();    
-    return 0;
-    
-    
-    
-
+    ///////////////////////////////// TRAVERSING //////////////////////////////// 
     auto start_read = std::chrono::high_resolution_clock::now();
 
     std::list<std::list<kmer_pair>> contigs;
