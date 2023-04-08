@@ -10,9 +10,6 @@ struct HashMap {
     upcxx::global_ptr<int>* used_pt; 
     upcxx::atomic_domain<int> ad; 
     
-    //std::vector<std::list<kmer_pair>> data_buf;
-    //std::vector<std::list<uint64_t>>  slot_buf;
-    
     int slots_per_rank;
 
     size_t my_size;
@@ -56,14 +53,6 @@ HashMap::HashMap(size_t size) {
         used_pt[rank] = used.fetch(rank).wait();
     }
     upcxx::barrier();
-    //data_buf.resize(upcxx::rank_n());
-    //slot_buf.resize(upcxx::rank_n());
-    //for (int rank = 0; rank < upcxx::rank_n(); rank++){
-    //    std::list<kmer_pair> row_d = {};
-    //    std::list<uint64_t> row_s = {};
-    //    data_buf[rank] = row_d;
-    //    slot_buf[rank] = row_s;
-    //}
     
     ad = upcxx::atomic_domain<int>({upcxx::atomic_op::load,upcxx::atomic_op::fetch_add});
 }
@@ -78,8 +67,6 @@ bool HashMap::insert(const kmer_pair& kmer) {
         success = request_slot(slot).wait()>0 ? false : true;
         if (success) {
             write_slot(slot,kmer);
-            //data_buf[slot/slots_per_rank].push_back(kmer);
-            //slot_buf[slot/slots_per_rank].push_back(slot%slots_per_rank);
         }
     } while ((!success) && probe < size());
     return success;
@@ -91,12 +78,12 @@ bool HashMap::find(const pkmer_t& key_kmer, kmer_pair& val_kmer) {
     bool success = false;
     do {
         uint64_t slot = (hash + probe++) % size();
-        if (slot_used(slot)) {
+        //if (slot_used(slot)) {
             val_kmer = read_slot(slot);
             if (val_kmer.kmer == key_kmer) {
                 success = true;
             }
-        }
+        //}
     } while (!success && probe < size());
     return success;
 }
